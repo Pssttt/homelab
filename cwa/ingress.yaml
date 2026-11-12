@@ -1,0 +1,20 @@
+# No tls block: Cloudflare terminates TLS at the edge and the tunnel forwards to Traefik over
+# plain HTTP (cloudflared-chart in homelab-private). The hostname also needs a tunnel entry
+# and a DNS record, both in homelab-private.
+# Cloudflare's free plan caps request bodies at 100 MB, which limits uploads through the UI.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cwa
+spec:
+  rules:
+    - host: books.psstee.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cwa
+                port:
+                  number: 80
