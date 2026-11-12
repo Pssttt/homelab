@@ -91,6 +91,15 @@ spec:
             limits:
               memory: 512Mi
 
+  # The Grafana PVC was recreated by hand after the node rename, so its last-applied
+  # state carries spec.volumeName. Kubernetes rejects any attempt to change a bound PVC's
+  # spec, which left this app stuck OutOfSync. Keep whatever volumeName the live claim has.
+  ignoreDifferences:
+    - kind: PersistentVolumeClaim
+      name: kube-prometheus-stack-grafana
+      namespace: monitoring
+      jsonPointers:
+        - /spec/volumeName
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -105,3 +114,5 @@ spec:
       # full object in an annotation capped at 256KB and fails. Server-
       # side apply has no such limit.
       - ServerSideApply=true
+      # Apply the ignoreDifferences above on sync too, not only when comparing.
+      - RespectIgnoreDifferences=true
