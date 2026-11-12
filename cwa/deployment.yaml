@@ -1,0 +1,72 @@
+# Calibre-Web-Automated (crocodilestick/Calibre-Web-Automated): a Calibre-Web fork that watches an
+# ingest folder, converts books to EPUB, adds them to the library, and syncs to a Kobo.
+# One replica, Recreate: the Calibre library is a SQLite database on a ReadWriteOnce volume.
+# The image starts as root (s6-overlay) and drops to PUID/PGID, so no runAsNonRoot here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cwa
+  labels:
+    app: cwa
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cwa
+  template:
+    metadata:
+      labels:
+        app: cwa
+    spec:
+      containers:
+        - name: cwa
+          # v4.0.8, pinned by digest. Published for linux/amd64 and linux/arm64.
+          image: crocodilestick/calibre-web-automated:v4.0.8@sha256:5e00373854247750cc3e4479b492ae09293ff5e06ed10177f226634d97888679
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: Asia/Bangkok
+            # local-path is a real local disk, not NFS/SMB.
+            - name: NETWORK_SHARE_MODE
+              value: "false"
+            # Cloudflare tunnel -> Traefik -> CWA is two proxies; with the default of one,
+            # session protection sees changing client IPs and logs users out.
+            - name: TRUSTED_PROXY_COUNT
+              value: "2"
+          ports:
+            - name: web
+              containerPort: 8083
+          volumeMounts:
+            - {name: data, mountPath: /config, subPath: config}
+            - {name: data, mountPath: /cwa-book-ingest, subPath: ingest}
+            - {name: data, mountPath: /calibre-library, subPath: library}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              # Calibre's ebook-convert can use well over 1 GiB on a large PDF.
+              memory: 2Gi
+          # TCP checks only: the first start chowns the volume and builds the library, so
+          # give it room before liveness applies.
+          startupProbe:
+            tcpSocket: {port: web}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket: {port: web}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: web}
+            periodSeconds: 30
+            failureThreshold: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: cwa-data

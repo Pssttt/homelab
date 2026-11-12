@@ -1,0 +1,12 @@
+# One volume, three subdirectories (config, ingest, library). CWA requires the three mounts to
+# be separate directories, which subPath guarantees. The library is the data worth keeping:
+# there is no backup job, so copy it off the node before relying on it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cwa-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cwa
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Pssttt/homelab
+    targetRevision: main
+    path: cwa
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cwa
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
