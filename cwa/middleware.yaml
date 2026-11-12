@@ -1,0 +1,18 @@
+# Tell CWA the visitor is on HTTPS.
+#
+# Cloudflare terminates TLS and the tunnel hands Traefik plain HTTP. Traefik does not trust
+# the incoming X-Forwarded-* headers (no trustedIPs configured) and replaces X-Forwarded-Proto
+# with `http`, so CWA builds http:// links, including the Kobo sync URL and the download and
+# cover links inside the sync data. This host is only reachable through the tunnel, so https
+# is always true here.
+#
+# Used with TRUSTED_PROXY_COUNT=1: CWA applies that one number to every forwarded header and
+# ignores a header that has fewer values, and Traefik always sends single-valued headers.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forwarded-https
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Proto: https

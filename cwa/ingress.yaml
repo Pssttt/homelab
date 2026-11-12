@@ -6,6 +6,8 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: cwa
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: cwa-forwarded-https@kubernetescrd
 spec:
   rules:
     - host: books.psstee.me

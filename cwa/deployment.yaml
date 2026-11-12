@@ -35,10 +35,11 @@ spec:
             # local-path is a real local disk, not NFS/SMB.
             - name: NETWORK_SHARE_MODE
               value: "false"
-            # Cloudflare tunnel -> Traefik -> CWA is two proxies; with the default of one,
-            # session protection sees changing client IPs and logs users out.
+            # CWA applies this one number to every X-Forwarded-* header and ignores a header with
+            # fewer values. Traefik sends single-valued headers, so the count is 1 (see
+            # middleware.yaml). 2 makes CWA ignore them all and build http:// links.
             - name: TRUSTED_PROXY_COUNT
-              value: "2"
+              value: "1"
           ports:
             - name: web
               containerPort: 8083
