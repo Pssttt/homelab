@@ -25,7 +25,7 @@ image:
     # write-back was still skipped at that point (GITOPS_APP_* secrets absent).
     # CI takes over this line on the next push once those secrets exist, so
     # reading this file always tells you which commit is deployed.
-    tag: "sha-dee32d1c938e55fe061cedccd931f152549ad0e7"
+    tag: "sha-c6f180666db06dff4b2c4531a34e7adc841ea9c6"
 web:
   port: 3000
   # ONE replica, and this is not a capacity choice. The renderer keeps a single
