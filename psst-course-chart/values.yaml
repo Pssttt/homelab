@@ -1,0 +1,43 @@
+# The image tag is written by CI (.github/workflows/docker.yml in the psst-course repo)
+# on every push to main. Do not edit by hand.
+#
+# Seeded with `latest` so the first ArgoCD sync has something to pull before CI has run
+# once. CI replaces it with a sha- tag on the first push.
+image:
+  web:
+    repository: ghcr.io/pssttt/psst-course
+    tag: "sha-4ee6f26b93d1d2dbda24606fb1b8d022f89467fd"
+web:
+  port: 3000
+  # Must stay 1. SQLite on a ReadWriteOnce volume has exactly one writer, and the
+  # migrate initContainer assumes no other pod is mid-migration.
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 640Mi
+storage:
+  # Holds one SQLite file plus its WAL. Generous: the content lives in the image, not here.
+  size: 1Gi
+  path: /data
+ingress:
+  webHost: course.psstee.me
+backup:
+  enabled: true
+  # Nightly at 04:42 UTC. Deliberately offset from the Garage sweep at 04:17 and the
+  # Unishare dump at 03:17, so three jobs are not competing for the same four cores.
+  schedule: "42 4 * * *"
+  r2:
+    image: rclone/rclone:1.71.0
+    # Shares the Unishare backup bucket under its own prefix rather than taking a new
+    # bucket: same R2 account, same token, and the existing token is already scoped to
+    # this bucket only. The prefix keeps it clear of the Garage sync, which owns
+    # `objects/` and `graveyard/`.
+    bucket: unishare-backup
+    prefix: psst-course
+    endpoint: https://fed5a7f30a6204cedab64f575d4ec023.r2.cloudflarestorage.com
+    # 30 days. The database is about a megabyte, so retention costs nothing and the
+    # failure this guards against (a bad migration noticed weeks later) is slow.
+    retainDays: 30

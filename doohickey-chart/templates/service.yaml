@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: doohickey
+  labels:
+    app: doohickey
+spec:
+  selector:
+    app: doohickey
+  ports:
+    - name: http
+      port: {{ .Values.app.port }}
+      targetPort: http

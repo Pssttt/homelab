@@ -1,0 +1,16 @@
+# No storageClassName: falls through to the cluster default, k3s local-path, matching
+# every other chart in this repo.
+#
+# local-path has reclaimPolicy Delete and lives on the node's disk, so deleting this PVC
+# or losing the node loses all progress. The curriculum itself is in the image and is not
+# at risk; what is here is answers, reflections, scores and the review schedule.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: psst-course-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}

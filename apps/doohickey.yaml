@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: doohickey
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Pssttt/homelab
+    targetRevision: main
+    path: doohickey-chart
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: doohickey
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

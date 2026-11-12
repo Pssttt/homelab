@@ -1,0 +1,215 @@
+{{- if .Values.backup.enabled }}
+# Nightly off-site backup of the psst-course SQLite database.
+#
+# Context: the database sits on a `local-path` PVC, which is a bind-mounted directory on
+# the single node, with `reclaimPolicy: Delete`. It has no snapshots and no redundancy, so
+# losing the node or the PVC loses every answer, hypothesis, lab debrief and assessment
+# attempt. The content is in the image and can be rebuilt; the record of working through it
+# cannot.
+#
+# There is no local backup PVC, unlike the Unishare Postgres job. A second copy on the same
+# disk protects only against application-level mistakes, and the off-site copy already
+# covers those: a bad migration is still recoverable from yesterday's object. For a file
+# this small the extra PVC buys a faster restore and nothing else.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: psst-course-backup
+  labels:
+    app: psst-course-backup
+spec:
+  schedule: "{{ .Values.backup.schedule }}"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: psst-course-backup
+        spec:
+          restartPolicy: Never
+          # Matches web.yaml: the file is written by uid 1000 and the snapshot has to be
+          # readable by the same identity.
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: psst-course-data
+            # Staging only. The snapshot exists for the length of the job and is gone with
+            # the pod; R2 is where it is kept.
+            - name: stage
+              emptyDir: {}
+          # Ordering is load-bearing, so this is an initContainer rather than a sibling.
+          # Two plain containers start together, which would race the upload against the
+          # snapshot it is meant to ship. A failed or corrupt snapshot means the upload
+          # never runs, rather than faithfully copying a broken database off-site.
+          initContainers:
+            - name: snapshot
+              # The app image, so the SQLite library taking the snapshot is exactly the one
+              # that wrote the file.
+              image: "{{ .Values.image.web.repository }}:{{ .Values.image.web.tag }}"
+              env:
+                - name: DATABASE_PATH
+                  value: "{{ .Values.storage.path }}/psst-course.db"
+              volumeMounts:
+                - name: data
+                  mountPath: {{ .Values.storage.path }}
+                - name: stage
+                  mountPath: /stage
+              command:
+                - node
+                - -e
+                - |
+                  const Database = require("better-sqlite3");
+                  const { statSync } = require("node:fs");
+
+                  const src = process.env.DATABASE_PATH;
+                  const ts = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
+                  const out = `/stage/psst-course-${ts}.db`;
+
+                  // VACUUM INTO, not a file copy. The database runs in WAL mode with the
+                  // app writing to it, so `cp` can capture a main file whose committed
+                  // pages are still in the WAL: a torn snapshot that opens fine and is
+                  // missing the most recent writes. VACUUM INTO takes a read lock and
+                  // writes a consistent, already-compacted database.
+                  const db = new Database(src, { readonly: true });
+                  db.pragma("busy_timeout = 30000");
+                  console.log(`==> snapshotting ${src} to ${out}`);
+                  db.exec(`VACUUM INTO '${out}'`);
+                  db.close();
+
+                  // Verify by opening the snapshot rather than trusting the exit code. A
+                  // truncated file fails here instead of sitting in R2 until the day it is
+                  // needed.
+                  const copy = new Database(out, { readonly: true });
+                  const integrity = copy.pragma("integrity_check", { simple: true });
+                  if (integrity !== "ok") throw new Error(`integrity_check: ${integrity}`);
+
+                  // The schema version is the thing a restore has to match, so assert the
+                  // migration table is present and populated rather than just non-empty.
+                  const applied = copy
+                    .prepare("select count(*) c from __drizzle_migrations")
+                    .get().c;
+                  if (applied < 1) throw new Error("snapshot has no applied migrations");
+
+                  // Row counts, so the log answers "was there anything in it" without a
+                  // restore. A backup that silently starts copying an empty database is
+                  // the failure this catches.
+                  const tables = [
+                    "lesson_progress", "answer", "reflection", "hypothesis",
+                    "lab_run", "assessment_attempt", "project_task", "project_note", "note",
+                  ];
+                  const counts = tables
+                    .map((t) => `${t}=${copy.prepare(`select count(*) c from ${t}`).get().c}`)
+                    .join(" ");
+                  copy.close();
+
+                  console.log(`==> migrations=${applied} ${counts}`);
+                  console.log(`==> snapshot ok, ${statSync(out).size} bytes`);
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+          containers:
+            # Separate container because the app image has no rclone, and installing one at
+            # runtime would put a package-registry fetch in the backup path.
+            #
+            # This container's exit status is the Job's, so a failed upload fails the job
+            # and shows up as a failed CronJob rather than a green run with nothing shipped.
+            - name: ship-to-r2
+              image: "{{ .Values.backup.r2.image }}"
+              env:
+                - name: R2_BUCKET
+                  value: "{{ .Values.backup.r2.bucket }}"
+                - name: R2_PREFIX
+                  value: "{{ .Values.backup.r2.prefix }}"
+                - name: R2_RETAIN_DAYS
+                  value: "{{ .Values.backup.r2.retainDays }}"
+                - name: RCLONE_CONFIG_R2_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_R2_PROVIDER
+                  value: Cloudflare
+                - name: RCLONE_CONFIG_R2_ENDPOINT
+                  value: "{{ .Values.backup.r2.endpoint }}"
+                - name: RCLONE_CONFIG_R2_REGION
+                  value: auto
+                # Required for a bucket-scoped R2 token: without it rclone calls
+                # CreateBucket before its first upload, which such a token cannot do, and
+                # the write fails with AccessDenied while reads keep working.
+                - name: RCLONE_CONFIG_R2_NO_CHECK_BUCKET
+                  value: "true"
+                # Deliberately its own Secret, not `psst-course-secrets`: web.yaml consumes
+                # that one with envFrom, which injects every key into the internet-facing
+                # pod. An R2 Object Read and Write token can delete anything in the bucket,
+                # so keeping it there would let a compromise of the app destroy the backups
+                # it is meant to be protected by. Do not add an envFrom for this Secret.
+                - name: RCLONE_CONFIG_R2_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: psst-course-backup-r2
+                      key: R2_ACCESS_KEY_ID
+                - name: RCLONE_CONFIG_R2_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: psst-course-backup-r2
+                      key: R2_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: stage
+                  mountPath: /stage
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  # Hard-fail on an unset destination rather than letting an empty variable
+                  # turn the target into the remote root.
+                  : "${R2_BUCKET:?R2_BUCKET must be set}"
+                  : "${R2_PREFIX:?R2_PREFIX must be set}"
+                  : "${R2_RETAIN_DAYS:?R2_RETAIN_DAYS must be set}"
+                  # `--min-age 0d` matches everything, including the snapshot taken seconds
+                  # ago. Refuse rather than delete every off-site copy and exit 0.
+                  [ "$R2_RETAIN_DAYS" -ge 1 ] || { echo "R2_RETAIN_DAYS must be >= 1"; exit 1; }
+
+                  SNAP=$(ls -1t /stage/psst-course-*.db 2>/dev/null | head -1)
+                  [ -n "$SNAP" ] || { echo "no snapshot found in /stage"; exit 1; }
+
+                  echo "==> shipping $(basename "$SNAP") to r2:${R2_BUCKET}/${R2_PREFIX}/"
+                  rclone copyto "$SNAP" \
+                    "r2:${R2_BUCKET}/${R2_PREFIX}/$(basename "$SNAP")" \
+                    --retries 3 --retries-sleep 10s --stats-one-line
+
+                  # Byte-for-byte check of the uploaded copy. Safe here because a
+                  # single-part object's R2 ETag is its MD5; this file is far below the
+                  # multipart threshold where Garage and R2 ETags diverge.
+                  echo "==> verifying the uploaded copy"
+                  rclone check "$SNAP" "r2:${R2_BUCKET}/${R2_PREFIX}/" --checksum --one-way
+
+                  # --min-age means what it says here: a snapshot's modtime is its creation
+                  # time. (In the Garage graveyard rclone preserves the original object's
+                  # modtime, which is why that job prunes by directory name instead.)
+                  echo "==> pruning off-site snapshots older than ${R2_RETAIN_DAYS}d"
+                  rclone delete "r2:${R2_BUCKET}/${R2_PREFIX}/" \
+                    --min-age "${R2_RETAIN_DAYS}d" --retries 3
+
+                  echo "==> current off-site snapshots"
+                  rclone lsl "r2:${R2_BUCKET}/${R2_PREFIX}/"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+{{- end }}

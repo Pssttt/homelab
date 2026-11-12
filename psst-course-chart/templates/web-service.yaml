@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: psst-course-web
+  labels:
+    app: psst-course-web
+spec:
+  type: ClusterIP
+  selector:
+    app: psst-course-web
+  ports:
+    # Named because a ServiceMonitor endpoint would reference the port by name.
+    - name: http
+      port: {{ .Values.web.port }}
+      targetPort: http

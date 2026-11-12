@@ -1,0 +1,21 @@
+# openGym's data: users, passkeys, workouts, uploads. Back this one up.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opengym-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+# The exercise images and GIFs (~140 MB), downloaded again by the initContainer if lost.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opengym-media
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi

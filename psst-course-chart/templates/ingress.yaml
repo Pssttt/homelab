@@ -1,0 +1,22 @@
+# No tls block: Cloudflare terminates TLS at the edge and forwards to Traefik over plain
+# HTTP. The host must be a single label under psstee.me, which is what Cloudflare's
+# wildcard edge certificate covers.
+#
+# Access control is a Cloudflare Zero Trust Access application on this hostname, not
+# anything in the cluster. The app ships no authentication of its own.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: psst-course
+spec:
+  rules:
+    - host: "{{ .Values.ingress.webHost }}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: psst-course-web
+                port:
+                  number: 3000

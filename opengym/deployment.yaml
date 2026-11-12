@@ -1,0 +1,139 @@
+# openGym, adapted from upstream's kubernetes/ manifests (v1.3.9): the API and the web container
+# in one pod, one replica, Recreate — the API keeps its data as files on a ReadWriteOnce volume
+# and two API processes must never write them at once.
+#
+# The web image is the openGym+ fork (github.com/Pssttt/opengym: English only, weight steps,
+# auto-finish), built by its "Web image" workflow. The API is unchanged in the fork, so it is
+# upstream's published image. Keep both on the same upstream version when bumping.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opengym
+  labels:
+    app: opengym
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: opengym
+  template:
+    metadata:
+      labels:
+        app: opengym
+    spec:
+      initContainers:
+        # The exercise media, one time — the same download as the media service in upstream's
+        # docker-compose.yml. © Gym visual, fetched from upstream, not redistributed.
+        - name: media-download
+          image: alpine/git:2.52.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              mkdir -p /out/img /out/gif
+              if [ -z "$(ls -A /out/img 2>/dev/null)" ]; then
+                git clone --depth 1 https://github.com/hasaneyldrm/exercises-dataset /tmp/ds
+                cp /tmp/ds/images/*.jpg /out/img/ && cp /tmp/ds/videos/*.gif /out/gif/
+              fi
+          volumeMounts:
+            - name: opengym-media
+              mountPath: /out
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+      containers:
+        - name: api
+          image: ghcr.io/duartesantos8/opengym-api:1.3.9
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "3000"
+            - name: DATA_DIR
+              value: /data
+            # Passkeys are bound to this exact hostname; Cloudflare terminates TLS, so the
+            # browser is on https even though Traefik sees plain HTTP.
+            - name: RP_ID
+              value: opengym.psstee.me
+            - name: ORIGIN
+              value: https://opengym.psstee.me
+            - name: RP_NAME
+              value: openGym+
+            # Personal instance: no guest mode, the owner ("psst") is the admin, and a new
+            # profile needs an invite code from the admin dashboard.
+            - name: ALLOW_GUEST
+              value: "0"
+            - name: ADMIN_UIDS
+              value: Ja8sp7dJGn195Agu,QEG5bnvi7ZI_5Yak
+            - name: INVITE_ONLY
+              value: "1"
+          ports:
+            - containerPort: 3000
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+          volumeMounts:
+            - name: opengym-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+        - name: web
+          image: ghcr.io/pssttt/opengym-web:1.3.9-psst.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NGINX_PORT
+              value: "80"
+            # Same pod, so the API is on localhost; an IP means nginx needs no RESOLVER.
+            - name: BACKEND
+              value: 127.0.0.1
+            - name: PORT
+              value: "3000"
+            # Traffic arrives through the Cloudflare tunnel, which sets this header itself, so
+            # the activity log and the sign-in throttle see the real visitor.
+            - name: CF_CONNECTING_IP
+              value: $http_cf_connecting_ip
+          ports:
+            - containerPort: 80
+              name: web
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 30
+          volumeMounts:
+            - name: opengym-media
+              mountPath: /usr/share/nginx/html/img
+              subPath: img
+            - name: opengym-media
+              mountPath: /usr/share/nginx/html/gif
+              subPath: gif
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: opengym-data
+          persistentVolumeClaim:
+            claimName: opengym-data
+        - name: opengym-media
+          persistentVolumeClaim:
+            claimName: opengym-media

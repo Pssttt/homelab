@@ -1,0 +1,20 @@
+# Image tags are written by CI (.github/workflows/deploy.yml in the
+# portfolio-next repo) on every push to main. Do not edit by hand.
+image:
+  web:
+    repository: ghcr.io/pssttt/portfolio-next
+    tag: "sha-bc522e64486102a7ac3fd672a092e13fe2211b7d"
+web:
+  port: 3000
+  resendFromEmail: contact@notify.psstee.me
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+ingress:
+  webHost: psstee.me
+  aliases:
+    - www.psstee.me

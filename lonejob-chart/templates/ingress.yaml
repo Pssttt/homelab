@@ -1,0 +1,20 @@
+# No `tls:` block and no cert-manager annotation, deliberately: Cloudflare
+# terminates TLS at the edge and forwards to Traefik over plain HTTP, so there is
+# nothing here for cert-manager to do. See ingress.webHost in values.yaml for why
+# the hostname must be a single label under psstee.me.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lonejob
+spec:
+  rules:
+    - host: "{{ .Values.ingress.webHost }}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lonejob-web
+                port:
+                  number: 3000

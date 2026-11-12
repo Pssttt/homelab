@@ -1,0 +1,107 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    # Pin the major: patch/minor upgrades flow automatically, major bumps
+    # (which can change CRDs) require a deliberate edit here.
+    targetRevision: "86.*"
+    chart: kube-prometheus-stack
+    helm:
+      valuesObject:
+        # ── k3s quirk ────────────────────────────────────────────────
+        # k3s embeds controller-manager/scheduler/etcd/kube-proxy inside
+        # the k3s binary — their metric ports don't exist as pods. Left
+        # enabled, their scrape targets are permanently DOWN and the
+        # bundled *Down alerts fire forever. Disable the components, not
+        # the alerts.
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeEtcd:
+          enabled: false
+        kubeProxy:
+          enabled: false
+
+        prometheus:
+          prometheusSpec:
+            # ── selector gotcha ──────────────────────────────────────
+            # By default the operator ONLY picks up ServiceMonitors that
+            # carry this Helm release's label. That's the #1 "why isn't
+            # my app being scraped" trap. nil selectors = watch them all.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+
+            # 35d retention so outline-vpn monthly egress accounting is exact.
+            # k3s local-path does NOT enforce the PVC size (the nominal 5Gi
+            # dir already holds >6GB), so retentionSize is the real cap and the
+            # node's ~160GB free is the ceiling. ~2.4GB/7d => ~13GB for 35d.
+            retention: 35d
+            retentionSize: 15GB
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: local-path
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 5Gi
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 1.5Gi
+
+        alertmanager:
+          alertmanagerSpec:
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 128Mi
+
+        grafana:
+          # Credentials come from the SealedSecret in monitoring-config/
+          admin:
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts:
+              - grafana.psstee.me
+          persistence:
+            enabled: true
+            storageClassName: local-path
+            size: 1Gi
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 512Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # ── CRD size gotcha ──────────────────────────────────────────
+      # The Prometheus CRDs are enormous; client-side apply stores the
+      # full object in an annotation capped at 256KB and fails. Server-
+      # side apply has no such limit.
+      - ServerSideApply=true

@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: psst-course-web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  # Recreate, not RollingUpdate. Not because of the volume: ReadWriteOnce is per node, and
+  # on this single-node local-path setup a surge pod mounts it next to the old one (checked
+  # on kind; only ReadWriteOncePod blocks that). Because of the database: the migrate
+  # initContainer below rewrites the SQLite schema, and under RollingUpdate it would do so
+  # while the old pod is still serving against the old schema. Recreate stops the old pod
+  # first, so one process owns the file at a time.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: psst-course-web
+  template:
+    metadata:
+      labels:
+        app: psst-course-web
+    spec:
+      terminationGracePeriodSeconds: 30
+      # No imagePullSecrets: the GHCR package is public, matching portfolio and doohickey.
+      # The repository stays private; GHCR package visibility is a separate setting.
+      # lonejob is the one chart here that needs a pull secret, because that image carries
+      # a SQL schema and prompt architecture. This one carries course content and no
+      # credentials, and recorded progress lives on the PVC rather than in the image.
+      # The image runs as uid 1000 and must write the SQLite file into a local-path
+      # directory the provisioner created as root. Without fsGroup this is EACCES on the
+      # first migration, and it reads like a migration bug rather than a permissions one.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: psst-course-data
+      initContainers:
+        # Same image as the app, so the schema can never be at a different version than
+        # the code that expects it. Safe at one replica; if replicas ever grow this needs
+        # to move to a Job with a lock.
+        - name: migrate
+          image: "{{ .Values.image.web.repository }}:{{ .Values.image.web.tag }}"
+          command: ["node", "dist/migrate.mjs"]
+          env:
+            - name: DATABASE_PATH
+              value: "{{ .Values.storage.path }}/psst-course.db"
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.storage.path }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # Not readOnlyRootFilesystem: SQLite writes its WAL and shared-memory files
+            # alongside the database on the mounted volume.
+      containers:
+        - name: web
+          image: "{{ .Values.image.web.repository }}:{{ .Values.image.web.tag }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.web.port }}
+          env:
+            - name: PORT
+              value: "{{ .Values.web.port }}"
+            - name: DATABASE_PATH
+              value: "{{ .Values.storage.path }}/psst-course.db"
+          envFrom:
+            # optional: the app runs fully without a key. The tutor returns a readable
+            # 503, rubric checking reports unavailable, and review falls back to
+            # rereading the lesson. Without `optional` a missing secret would block
+            # startup and turn an absent nice-to-have into an outage.
+            - secretRef:
+                name: psst-course-secrets
+                optional: true
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.storage.path }}
+          {{- with .Values.web.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            # Deliberately TCP rather than an HTTP path. Liveness restarts the pod, and a
+            # slow render must not do that; readiness already de-registers it.
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5

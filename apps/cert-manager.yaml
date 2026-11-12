@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    # Install before anything that declares Issuers/Certificates (outline-vpn).
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    targetRevision: v1.21.0
+    chart: cert-manager
+    helm:
+      valuesObject:
+        crds:
+          enabled: true
+          keep: true
+        # Single-node homelab — keep the footprint small.
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # cert-manager CRDs are large; client-side apply hits the 256KB
+      # annotation cap. Server-side apply has no such limit.
+      - ServerSideApply=true

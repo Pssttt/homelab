@@ -1,0 +1,19 @@
+# The image tag is written by CI (.github/workflows/deploy.yml in the
+# doohickey repo) on every push to main. Do not edit by hand.
+image:
+  repository: ghcr.io/pssttt/doohickey
+  tag: "latest"
+app:
+  port: 8080
+  # Sessions and the current round live in the server's memory, so a second
+  # replica would deal a player a different riddle depending on which pod the
+  # request landed on. This stays at 1 until state moves out of process.
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+ingress:
+  host: play.psstee.me

@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lonejob
+  namespace: argocd
+  # Deliberately no argocd-image-updater annotations. The updater is deployed but
+  # retired for these apps (see apps/unishare.yaml): its git write-back silently
+  # failed for six weeks while builds kept succeeding, and adding annotations back
+  # would put two writers on the same image field. CI writes the tag into
+  # lonejob-chart/values.yaml instead, so this repo is the single source of truth
+  # for what is deployed.
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Pssttt/homelab
+    targetRevision: main
+    path: lonejob-chart
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lonejob
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

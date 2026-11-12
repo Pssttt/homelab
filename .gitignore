@@ -1,0 +1,11 @@
+.env
+
+__pycache__/
+*.pyc
+
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+terraform/cloudflare/backend.hcl

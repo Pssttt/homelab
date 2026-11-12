@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: psst-course
+  namespace: argocd
+  # Deliberately no argocd-image-updater annotations, matching lonejob and unishare. CI
+  # writes the tag into psst-course-chart/values.yaml, so this repo stays the single
+  # source of truth for what is deployed and there is only ever one writer on that field.
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Pssttt/homelab
+    targetRevision: main
+    path: psst-course-chart
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: psst-course
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

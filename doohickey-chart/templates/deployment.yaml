@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: doohickey
+spec:
+  replicas: {{ .Values.app.replicas }}
+  strategy:
+    # Recreate rather than RollingUpdate: with in-memory sessions, two pods
+    # briefly alive at once would serve some players a round the other pod has
+    # never heard of. A short gap is the more honest trade.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: doohickey
+  template:
+    metadata:
+      labels:
+        app: doohickey
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        # The distroless base sets USER by name ("nonroot"), and kubelet will
+        # not start a runAsNonRoot container it cannot prove is non-root from a
+        # numeric id. 65532 is that image's nonroot uid.
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          args:
+            - "-addr"
+            - ":{{ .Values.app.port }}"
+            # Cloudflare terminates TLS at the edge, so the browser is on
+            # HTTPS even though Traefik sees plain HTTP. The session cookie
+            # should be marked Secure accordingly.
+            - "-secure-cookies"
+          ports:
+            - name: http
+              containerPort: {{ .Values.app.port }}
+          {{- with .Values.app.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
