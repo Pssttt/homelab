@@ -6,7 +6,7 @@
 image:
   web:
     repository: ghcr.io/pssttt/psst-course
-    tag: "sha-4ee6f26b93d1d2dbda24606fb1b8d022f89467fd"
+    tag: "sha-2c3e956e2f97c59794020afed5910e547a09a838"
 web:
   port: 3000
   # Must stay 1. SQLite on a ReadWriteOnce volume has exactly one writer, and the
