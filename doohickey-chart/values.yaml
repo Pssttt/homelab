@@ -2,7 +2,7 @@
 # doohickey repo) on every push to main. Do not edit by hand.
 image:
   repository: ghcr.io/pssttt/doohickey
-  tag: "latest"
+  tag: "sha-a8c18dafa706d2d64ef085a992088bcf7f137782"
 app:
   port: 8080
   # Sessions and the current round live in the server's memory, so a second
