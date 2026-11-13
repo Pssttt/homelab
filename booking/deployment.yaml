@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: ghcr.io/pssttt/court-booking:sha-be06c1b
+          image: ghcr.io/pssttt/court-booking:sha-be06c1bf394832365471fbe05559946b216e1e78
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:
