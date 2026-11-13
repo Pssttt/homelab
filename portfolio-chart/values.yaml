@@ -14,7 +14,7 @@ web:
       memory: 128Mi
     limits:
       memory: 512Mi
+# The terminal-style site moved here when psstee.me switched to portfolio-v2.
 ingress:
-  webHost: psstee.me
-  aliases:
-    - www.psstee.me
+  webHost: terminal.psstee.me
+  aliases: []

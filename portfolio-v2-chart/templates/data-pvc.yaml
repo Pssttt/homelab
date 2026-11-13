@@ -1,0 +1,10 @@
+# Contact messages and resume-download records (JSON files in /app/data).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: portfolio-v2-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 256Mi

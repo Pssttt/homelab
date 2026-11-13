@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-v2-web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  # RWO volume: stop the old pod before starting the new one.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: portfolio-v2-web
+  template:
+    metadata:
+      labels:
+        app: portfolio-v2-web
+    spec:
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: portfolio-v2-data
+      containers:
+        - name: web
+          image: "{{ .Values.image.web.repository }}:{{ .Values.image.web.tag }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.web.port }}
+          env:
+            - name: PORT
+              value: "{{ .Values.web.port }}"
+            - name: RESEND_FROM_EMAIL
+              value: {{ .Values.web.resendFromEmail | quote }}
+          # Shares the SealedSecret owned by portfolio-chart (same namespace).
+          envFrom:
+            - secretRef:
+                name: portfolio-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          {{- with .Values.web.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
