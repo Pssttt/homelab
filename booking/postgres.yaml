@@ -1,0 +1,77 @@
+# Postgres for the court booking app. Its old database host is gone, so this starts empty;
+# the app creates its tables on start.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: booking-postgres
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-postgres
+  labels:
+    app: booking-postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: booking-postgres
+  template:
+    metadata:
+      labels:
+        app: booking-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - name: POSTGRES_USER
+              value: booking
+            - name: POSTGRES_DB
+              value: booking
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: booking-env
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+              name: postgres
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "booking", "-d", "booking"]
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: booking-postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-postgres
+spec:
+  selector:
+    app: booking-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

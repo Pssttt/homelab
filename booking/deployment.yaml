@@ -1,0 +1,85 @@
+# Court booking (FastAPI, github.com/Pssttt/court-booking). It schedules form submissions in
+# memory and restores confirmed ones from Postgres on start, so one replica only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking
+  labels:
+    app: booking
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: booking
+  template:
+    metadata:
+      labels:
+        app: booking
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/pssttt/court-booking:sha-be06c1b
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: booking-env
+          env:
+            - name: SERVER_HOST
+              value: 0.0.0.0
+            - name: SERVER_PORT
+              value: "3000"
+            - name: SERVER_DEBUG
+              value: "false"
+            # Booking times are Thai local time.
+            - name: TZ
+              value: Asia/Bangkok
+          ports:
+            - containerPort: 3000
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              memory: 384Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking
+spec:
+  selector:
+    app: booking
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# No tls block: Cloudflare terminates TLS and the tunnel forwards to Traefik over plain HTTP.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: booking
+spec:
+  rules:
+    - host: booking.psstee.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: booking
+                port:
+                  number: 80
