@@ -13,7 +13,7 @@ spec:
       valuesObject:
         tempo:
           reportingEnabled: false
-          retention: 24h
+          retention: 168h
           resources:
             requests:
               cpu: 100m
