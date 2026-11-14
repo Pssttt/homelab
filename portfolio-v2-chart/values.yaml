@@ -3,7 +3,7 @@
 image:
   web:
     repository: ghcr.io/pssttt/portfolio-v2
-    tag: "sha-7c6dbdca9beaf443e0b517a9e11a0eff1e878504"
+    tag: "sha-de843dbca00248e2cb161a99fb1f305bbc6f6fb7"
 web:
   port: 3000
   resendFromEmail: contact@notify.psstee.me
